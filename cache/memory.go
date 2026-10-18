@@ -1,0 +1,161 @@
+package cache
+
+import (
+	"context"
+	"sync"
+	"time"
+)
+
+// entry is one MemoryCache slot: a value plus its absolute expiry.
+type entry[T any] struct {
+	value    T
+	expireAt time.Time
+}
+
+// expired reports whether the entry is past its expiry as of now.
+func (e entry[T]) expired(now time.Time) bool {
+	return !e.expireAt.IsZero() && now.After(e.expireAt)
+}
+
+// sweepInterval is the minimum time between sweeps of expired entries.
+const sweepInterval = time.Minute
+
+// MemoryCache is an in-memory Cache implementation backed by a Go map.
+// Expired entries are swept on writes, at most once per sweepInterval.
+type MemoryCache[T any] struct {
+	mu        sync.RWMutex
+	items     map[string]entry[T]
+	lastSweep time.Time
+}
+
+// NewMemoryCache creates an empty MemoryCache.
+//
+// Usage:
+//
+//	c := cache.NewMemoryCache[*User]()
+func NewMemoryCache[T any]() *MemoryCache[T] {
+	return &MemoryCache[T]{items: make(map[string]entry[T])}
+}
+
+// Get implements Cache; an expired entry is treated as a miss and evicted.
+func (c *MemoryCache[T]) Get(_ context.Context, key string) (T, bool) {
+	c.mu.RLock()
+	item, ok := c.items[key]
+	c.mu.RUnlock()
+
+	var empty T
+	if !ok {
+		return empty, false
+	}
+
+	if item.expired(time.Now()) {
+		c.mu.Lock()
+		delete(c.items, key)
+		c.mu.Unlock()
+
+		return empty, false
+	}
+
+	return item.value, true
+}
+
+// Set implements Cache.
+func (c *MemoryCache[T]) Set(_ context.Context, key string, value T, ttl time.Duration) error {
+	now := time.Now()
+	var expireAt time.Time
+	if ttl > 0 {
+		expireAt = now.Add(ttl)
+	}
+
+	c.mu.Lock()
+	c.sweep(now)
+	c.items[key] = entry[T]{value: value, expireAt: expireAt}
+	c.mu.Unlock()
+
+	return nil
+}
+
+// Incr implements Cache.
+func (c *MemoryCache[T]) Incr(_ context.Context, key string, ttl time.Duration) (int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	c.sweep(now)
+	var count int64
+	item, ok := c.items[key]
+	if ok && !item.expired(now) {
+		current, isInt := any(item.value).(int64)
+		if !isInt {
+			return 0, ErrNotInteger
+		}
+
+		count = current
+	} else {
+		item = entry[T]{}
+		if ttl > 0 {
+			item.expireAt = now.Add(ttl)
+		}
+	}
+
+	value, isT := any(count + 1).(T)
+	if !isT {
+		return 0, ErrNotInteger
+	}
+
+	item.value = value
+	c.items[key] = item
+
+	return count + 1, nil
+}
+
+// Delete implements Cache.
+func (c *MemoryCache[T]) Delete(_ context.Context, key string) error {
+	c.mu.Lock()
+	delete(c.items, key)
+	c.mu.Unlock()
+
+	return nil
+}
+
+// Exists implements Cache.
+func (c *MemoryCache[T]) Exists(ctx context.Context, key string) (bool, error) {
+	_, found := c.Get(ctx, key)
+	return found, nil
+}
+
+// GetOrSet implements Cache.
+func (c *MemoryCache[T]) GetOrSet(ctx context.Context, key string, ttl time.Duration, fetchFn func() (T, error)) (T, error) {
+	if val, found := c.Get(ctx, key); found {
+		return val, nil
+	}
+
+	val, err := fetchFn()
+	if err != nil {
+		var empty T
+		return empty, err
+	}
+
+	_ = c.Set(ctx, key, val, ttl)
+
+	return val, nil
+}
+
+// sweep deletes expired entries once per sweepInterval; the caller must hold c.mu.
+func (c *MemoryCache[T]) sweep(now time.Time) {
+	if now.Sub(c.lastSweep) < sweepInterval {
+		return
+	}
+
+	c.lastSweep = now
+	for key, item := range c.items {
+		if item.expired(now) {
+			delete(c.items, key)
+		}
+	}
+}
+
+// Close implements Cache; it is a no-op because MemoryCache holds no external resources.
+func (c *MemoryCache[T]) Close() error {
+	return nil
+}
