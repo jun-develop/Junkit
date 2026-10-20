@@ -185,7 +185,7 @@ func (t *Translator) loadSystemTranslations() {
 			"type_time":                 "datetime",
 			"not_found":                 "Not found",
 			"api_not_found":             "API is not found",
-			"method_not_found":          "HTTP method is not allowed for this endpoint",
+			"method_not_allowed":        "HTTP method is not allowed for this endpoint",
 			"app_running":               "The API is running",
 			"missing_id_param":          "Missing 'id' query parameter",
 			"invalid_uuid":              "Invalid UUID format",
