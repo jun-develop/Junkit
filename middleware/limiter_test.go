@@ -3,6 +3,7 @@ package middleware_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,8 +49,8 @@ func TestLimiter_AllowsWithinBurstThenRejects(t *testing.T) {
 		t.Fatalf("first request status = %d, want %d (within burst)", w.Code, http.StatusOK)
 	}
 
-	if w := req(); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("second request status = %d, want %d (burst exhausted)", w.Code, http.StatusTooManyRequests)
+	if w := req(); w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), `"code":"TOO_MANY_REQUESTS"`) {
+		t.Fatalf("second request = %d %s, want %d with code TOO_MANY_REQUESTS (burst exhausted)", w.Code, w.Body, http.StatusTooManyRequests)
 	}
 }
 
@@ -150,4 +151,20 @@ func TestLimiter_NilNotifierIsSafe(t *testing.T) {
 		router.ServeHTTP(w, r)
 	}
 	// The real assertion is that none of this panicked with a nil notifier.
+}
+
+func TestLimiter_PanicsOnZeroRateOrBurst(t *testing.T) {
+	noRate, noBurst := baseLimiterOptions(), baseLimiterOptions()
+	noRate.RequestsPerSecond, noBurst.Burst = 0, 0
+
+	for _, opts := range []middleware.LimiterOptions{noRate, noBurst} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("Limiter(%+v) did not panic", opts)
+				}
+			}()
+			middleware.Limiter(opts, zap.NewNop(), newResponder(), nil)
+		}()
+	}
 }

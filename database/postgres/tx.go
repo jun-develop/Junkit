@@ -10,8 +10,8 @@ import (
 
 // txContextKey is the context key under which d's active transaction is stored. It carries the
 // owning DB so that, with several databases, one DB's Executor never picks up another's transaction.
-type txContextKey struct{ 
-	db *DB 
+type txContextKey struct {
+	db *DB
 }
 
 // withTx returns a copy of ctx carrying tx as d's active transaction.
@@ -27,6 +27,8 @@ func (d *DB) getTx(ctx context.Context) (pgx.Tx, bool) {
 
 // WithTransaction runs fn inside a transaction, committing on success and rolling back on error
 // or panic (the panic is re-raised). fn's context carries the transaction, so Executor uses it.
+// A nested call on a ctx that already carries d's transaction joins it: fn runs in the outer
+// transaction, which alone commits or rolls back.
 //
 // Usage:
 //
@@ -37,6 +39,10 @@ func (d *DB) getTx(ctx context.Context) (pgx.Tx, bool) {
 //	    return repo.CreateAuditLog(txCtx, entry)
 //	})
 func (d *DB) WithTransaction(ctx context.Context, fn func(context.Context) error) (err error) {
+	if _, ok := d.getTx(ctx); ok {
+		return fn(ctx)
+	}
+
 	tx, err := d.pool.Begin(ctx)
 	if err != nil {
 		return console.NewError("begin transaction: %w", err)

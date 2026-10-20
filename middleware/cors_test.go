@@ -121,3 +121,16 @@ func TestCORS_NonPreflightContinuesTheChain(t *testing.T) {
 
 	_ = w
 }
+
+func TestCORS_VaryOriginOnDisallowedOrMissingOrigin(t *testing.T) {
+	for _, origin := range []string{"https://evil.example.com", ""} {
+		w, c := newCORSContext(http.MethodGet, origin)
+		c.Writer.Header().Add("Vary", "Accept-Encoding")
+
+		middleware.CORS(middleware.CORSOptions{AllowOrigins: []string{"https://app.example.com"}})(c)
+
+		if got := w.Header().Values("Vary"); len(got) != 2 || got[1] != "Origin" {
+			t.Errorf("origin %q: Vary = %v, want [Accept-Encoding Origin]", origin, got)
+		}
+	}
+}

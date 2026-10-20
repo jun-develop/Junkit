@@ -24,7 +24,7 @@ var defaultExcludedPaths = []string{"/health", "/metrics", "/favicon.ico"}
 var defaultSensitiveFields = []string{
 	"password", "pass", "token", "new_password",
 	"access_token", "refresh_token", "secret", "authorization",
-	"recaptcha_token",
+	"recaptcha_token", "api_key", "client_secret", "current_password", "old_password",
 }
 
 // accessLogHostname is this host's name, attached to every access log entry.
@@ -40,8 +40,8 @@ type AccessLogOptions struct {
 	// ExcludedPaths lists request paths to skip. Defaults to /health, /metrics and /favicon.ico.
 	ExcludedPaths []string
 
-	// SensitiveFields lists JSON field names to mask (case-insensitive). Defaults to common
-	// credential fields such as password, token and authorization.
+	// SensitiveFields lists JSON field names to mask at any depth (case-insensitive, ignoring "_" and
+	// "-"). Defaults to common credential fields such as password, token and authorization.
 	SensitiveFields []string
 
 	// MaxBodySize caps response bytes buffered for logging. Defaults to 100KB.
@@ -95,7 +95,7 @@ func AccessLog(httpLogger *zap.Logger, opts AccessLogOptions) gin.HandlerFunc {
 
 	sensitiveSet := make(map[string]struct{}, len(sensitive))
 	for _, f := range sensitive {
-		sensitiveSet[strings.ToLower(f)] = struct{}{}
+		sensitiveSet[normalizeFieldName(f)] = struct{}{}
 	}
 
 	maxBodySize := opts.MaxBodySize
@@ -127,12 +127,10 @@ func AccessLog(httpLogger *zap.Logger, opts AccessLogOptions) gin.HandlerFunc {
 		duration := time.Since(start)
 
 		reqBody := GetPayload(c)
-		sanitizeMapInPlace(reqBody, sensitiveSet)
+		sanitizeInPlace(reqBody, sensitiveSet)
 
 		respBody := parseAccessLogResponseBody(c.Writer.Header().Get("Content-Type"), respBuf.Bytes())
-		if m, ok := respBody.(map[string]any); ok {
-			sanitizeMapInPlace(m, sensitiveSet)
-		}
+		sanitizeInPlace(respBody, sensitiveSet)
 
 		var errs any
 		if len(c.Errors) > 0 {
@@ -193,23 +191,29 @@ func parseAccessLogResponseBody(contentType string, data []byte) any {
 	return string(data)
 }
 
-// sanitizeMapInPlace recursively masks sensitive fields in a map.
-func sanitizeMapInPlace(data map[string]any, sensitive map[string]struct{}) {
-	for k, v := range data {
-		if _, ok := sensitive[strings.ToLower(k)]; ok {
-			data[k] = "[MASKED]"
-			continue
-		}
-
-		switch val := v.(type) {
-		case map[string]any:
-			sanitizeMapInPlace(val, sensitive)
-		case []any:
-			for _, item := range val {
-				if m, ok := item.(map[string]any); ok {
-					sanitizeMapInPlace(m, sensitive)
-				}
+// sanitizeInPlace masks sensitive fields at any depth of nested JSON objects and arrays.
+func sanitizeInPlace(data any, sensitive map[string]struct{}) {
+	switch val := data.(type) {
+	case map[string]any:
+		for k, v := range val {
+			if _, ok := sensitive[normalizeFieldName(k)]; ok {
+				val[k] = "[MASKED]"
+				continue
 			}
+
+			sanitizeInPlace(v, sensitive)
+		}
+	case []any:
+		for _, item := range val {
+			sanitizeInPlace(item, sensitive)
 		}
 	}
+}
+
+// fieldNameReplacer drops the separators normalizeFieldName ignores.
+var fieldNameReplacer = strings.NewReplacer("_", "", "-", "")
+
+// normalizeFieldName folds case and drops "_"/"-" so access_token, accessToken and Access-Token match.
+func normalizeFieldName(name string) string {
+	return fieldNameReplacer.Replace(strings.ToLower(name))
 }

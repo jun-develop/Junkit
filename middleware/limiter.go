@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 	"sync"
@@ -214,6 +215,10 @@ func (c *rateLimitLogCache) shouldLog(ip string) bool {
 //	    ClientTTL: 10 * time.Minute, LogTTL: time.Minute,
 //	}, zapLogger, responder, notifier))
 func Limiter(opts LimiterOptions, logger *zap.Logger, responder response.Responder, notifier notification.Notifier) gin.HandlerFunc {
+	if opts.RequestsPerSecond <= 0 || opts.Burst <= 0 {
+		panic(fmt.Sprintf("middleware: Limiter requires RequestsPerSecond and Burst > 0, got %d and %d", opts.RequestsPerSecond, opts.Burst))
+	}
+
 	store := NewClientStore(opts)
 	store.StartCleanup()
 
@@ -264,7 +269,8 @@ func Limiter(opts LimiterOptions, logger *zap.Logger, responder response.Respond
 	}
 }
 
-// rateLimitAlertMessage formats an HTML alert message for rate limit breaches.
+// rateLimitAlertMessage formats an HTML alert message for rate limit breaches; request values are
+// escaped since Telegram rejects (and so drops) messages with stray markup.
 func rateLimitAlertMessage(ctx *gin.Context, ip string) string {
 	return fmt.Sprintf(`
 	🚦 <b>Rate Limit Exceeded</b>
@@ -277,9 +283,9 @@ func rateLimitAlertMessage(ctx *gin.Context, ip string) string {
 
 	⚠️ <i>Please check and block this IP address if necessary.</i>
 	`,
-		ip,
-		ctx.Request.Method,
-		ctx.Request.URL.Path,
+		html.EscapeString(ip),
+		html.EscapeString(ctx.Request.Method),
+		html.EscapeString(ctx.Request.URL.Path),
 		time.Now().Format(time.RFC3339),
 	)
 }

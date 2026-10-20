@@ -48,9 +48,11 @@ func (c *MemoryCache[T]) Get(_ context.Context, key string) (T, bool) {
 		return empty, false
 	}
 
-	if item.expired(time.Now()) {
+	if now := time.Now(); item.expired(now) {
 		c.mu.Lock()
-		delete(c.items, key)
+		if cur, ok := c.items[key]; ok && cur.expired(now) {
+			delete(c.items, key)
+		}
 		c.mu.Unlock()
 
 		return empty, false

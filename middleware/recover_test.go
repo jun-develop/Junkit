@@ -3,6 +3,8 @@ package middleware_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -140,5 +142,21 @@ func TestRecover_DebugWithoutSecretNeverBypasses(t *testing.T) {
 
 	if len(notifier.errorNotifications()) != 1 {
 		t.Fatalf("got %d error notifications, want 1 (the normal path should still notify)", len(notifier.errorNotifications()))
+	}
+}
+
+func TestRecover_ReportsThePanicSite(t *testing.T) {
+	notifier := newFakeNotifier()
+	var panicLine int
+	router := newRecoverRouter(notifier, middleware.RecoverOptions{}, func(c *gin.Context) {
+		_, _, panicLine, _ = runtime.Caller(0)
+		panic("boom") // must stay on the line right after runtime.Caller
+	})
+
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	data := notifier.errorNotifications()[0].data
+	if loc, _ := data["location"].(string); !strings.HasSuffix(loc, "recover_test.go") || data["line"] != panicLine+1 {
+		t.Fatalf("location = %v:%v, want recover_test.go:%d (the panic site, not Recover's handler)", data["location"], data["line"], panicLine+1)
 	}
 }

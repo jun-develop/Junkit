@@ -21,6 +21,12 @@ func TestNewFeatureData(t *testing.T) {
 		{name: "simple word", featName: "product", table: "", wantPascal: "Product", wantCamel: "product", wantTable: "products"},
 		{name: "snake_case with multiple words", featName: "order_item", table: "", wantPascal: "OrderItem", wantCamel: "orderItem", wantTable: "order_items"},
 		{name: "explicit table overrides the default", featName: "category", table: "product_categories", wantPascal: "Category", wantCamel: "category", wantTable: "product_categories"},
+		{name: "consonant + y pluralizes to ies", featName: "category", table: "", wantPascal: "Category", wantCamel: "category", wantTable: "categories"},
+		{name: "vowel + y just adds s", featName: "key", table: "", wantPascal: "Key", wantCamel: "key", wantTable: "keys"},
+		{name: "x pluralizes to es", featName: "box", table: "", wantPascal: "Box", wantCamel: "box", wantTable: "boxes"},
+		{name: "s pluralizes to es", featName: "status", table: "", wantPascal: "Status", wantCamel: "status", wantTable: "statuses"},
+		{name: "ch pluralizes to es", featName: "branch", table: "", wantPascal: "Branch", wantCamel: "branch", wantTable: "branches"},
+		{name: "sh pluralizes to es", featName: "dish", table: "", wantPascal: "Dish", wantCamel: "dish", wantTable: "dishes"},
 	}
 
 	for _, tt := range tests {
@@ -45,6 +51,39 @@ func TestNewFeatureData(t *testing.T) {
 
 			if data.Module != "jungo" {
 				t.Errorf("Module = %q, want %q", data.Module, "jungo")
+			}
+		})
+	}
+}
+
+func TestNewFeatureData_PluralAndModel(t *testing.T) {
+	tests := []struct {
+		featName, table, wantPlural, wantModel string
+	}{
+		{"product", "", "products", "Product"},
+		{"product", "items", "products", "Item"},
+		{"user", "users", "users", "User"},
+		{"order_item", "", "order_items", "OrderItem"},
+		{"category", "", "categories", "Category"},
+		{"box", "", "boxes", "Box"},
+		{"status", "", "statuses", "Status"},
+		{"bus", "", "buses", "Bus"},
+		{"class", "", "classes", "Class"},
+		{"branch", "", "branches", "Branch"},
+		{"key", "", "keys", "Key"},
+		{"house", "houses", "houses", "House"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.featName+"/"+tt.table, func(t *testing.T) {
+			data := scaffold.NewFeatureData(tt.featName, "jungo", tt.table)
+
+			if data.Plural != tt.wantPlural {
+				t.Errorf("Plural = %q, want %q", data.Plural, tt.wantPlural)
+			}
+
+			if data.Model != tt.wantModel {
+				t.Errorf("Model = %q, want %q", data.Model, tt.wantModel)
 			}
 		})
 	}
@@ -187,6 +226,34 @@ func TestGenerate_RefusesToOverwriteExistingFile(t *testing.T) {
 	content, _ := os.ReadFile(existing)
 	if string(content) != "package x\n" {
 		t.Fatalf("existing file was modified despite the refusal: %q", content)
+	}
+}
+
+func TestGenerate_RenderErrorWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a", "first.go")
+
+	cfg := scaffold.GenerateConfig{
+		Data: scaffold.NewFeatureData("product", "jungo", ""),
+		Files: []scaffold.File{
+			{Path: first, Template: "package a\n"},
+			{Path: filepath.Join(dir, "b", "second.go"), Template: "{{.NoSuchField}}"},
+		},
+	}
+
+	if err := scaffold.Generate(cfg); err == nil {
+		t.Fatal("Generate() error = nil, want the render error")
+	}
+
+	if _, err := os.Stat(first); !os.IsNotExist(err) {
+		t.Fatalf("%s exists after a failed Generate, want nothing written (stat err = %v)", first, err)
+	}
+
+	// A rerun with a fixed template must not be blocked by leftovers.
+	cfg.Files[1].Template = "package b\n"
+	cfg.FxFile = filepath.Join(dir, "missing-fx.go")
+	if err := scaffold.Generate(cfg); err != nil && strings.Contains(err.Error(), "refusing to overwrite") {
+		t.Fatalf("rerun refused to overwrite: %v", err)
 	}
 }
 

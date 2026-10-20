@@ -170,6 +170,17 @@ func TestResponder_Error_OrdinaryErrorBecomesGeneric500(t *testing.T) {
 	}
 }
 
+func TestResponder_Error_NilBecomesGeneric500(t *testing.T) {
+	responder := response.NewResponder(response.Options{Language: "en"}, i18n.NewTranslator())
+	w, c := newResponderTestContext()
+
+	responder.Error(c, nil)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d for a nil error", w.Code, http.StatusInternalServerError)
+	}
+}
+
 var errors500Sentinel = &fakeError{"a plain, unstructured error"}
 
 type fakeError struct{ msg string }
@@ -185,8 +196,10 @@ func TestResponder_Error_MapsEveryErrorCode(t *testing.T) {
 		{response.Unauthorized, http.StatusUnauthorized},
 		{response.NotFound, http.StatusNotFound},
 		{response.Forbidden, http.StatusForbidden},
+		{response.MethodNotAllowed, http.StatusMethodNotAllowed},
 		{response.Conflict, http.StatusConflict},
 		{response.UnsupportedMediaType, http.StatusUnsupportedMediaType},
+		{response.PayloadTooLarge, http.StatusRequestEntityTooLarge},
 		{response.TooManyRequests, http.StatusTooManyRequests},
 		{response.UnprocessableEntity, http.StatusUnprocessableEntity},
 		{response.Internal, http.StatusInternalServerError},
@@ -235,5 +248,43 @@ func TestGetAPIInfo_ReadsTraceMiddlewareContext(t *testing.T) {
 
 	if res.APIInfo.Latency == "" {
 		t.Error("APIInfo.Latency should be computed when start_time is present")
+	}
+}
+
+func TestResponder_EveryErrorResponseHasACode(t *testing.T) {
+	responder := response.NewResponder(response.Options{Language: "en"}, i18n.NewTranslator())
+
+	tests := []struct {
+		name   string
+		status int
+		write  func(c *gin.Context)
+		want   response.ErrorCode
+	}{
+		{"Send 400", 400, func(c *gin.Context) { responder.Send(c, 400, "k") }, response.BadRequest},
+		{"Send 403", 403, func(c *gin.Context) { responder.Send(c, 403, "k") }, response.Forbidden},
+		{"Send 404", 404, func(c *gin.Context) { responder.Send(c, 404, "k") }, response.NotFound},
+		{"Send 405", 405, func(c *gin.Context) { responder.Send(c, 405, "k") }, response.MethodNotAllowed},
+		{"Send 418 falls back", 418, func(c *gin.Context) { responder.Send(c, 418, "k") }, response.BadRequest},
+		{"Send 413", 413, func(c *gin.Context) { responder.Send(c, 413, "k") }, response.PayloadTooLarge},
+		{"Send 503 falls back", 503, func(c *gin.Context) { responder.Send(c, 503, "k") }, response.Internal},
+		{"SendWithData 422", 422, func(c *gin.Context) { responder.SendWithData(c, 422, "k", map[string]string{"f": "bad"}) }, response.UnprocessableEntity},
+		{"Error plain err", 500, func(c *gin.Context) { responder.Error(c, errors500Sentinel) }, response.Internal},
+		{"Send 200 has none", 200, func(c *gin.Context) { responder.Send(c, 200, "k") }, ""},
+		{"SendWithData 201 has none", 201, func(c *gin.Context) { responder.SendWithData(c, 201, "k", 1) }, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w, c := newResponderTestContext()
+			tt.write(c)
+
+			if w.Code != tt.status {
+				t.Fatalf("status = %d, want %d", w.Code, tt.status)
+			}
+
+			if got := decodeResponse(t, w).Code; got != tt.want {
+				t.Errorf("code = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

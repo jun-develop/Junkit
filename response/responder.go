@@ -61,6 +61,7 @@ func (r *responder) Send(ctx *gin.Context, statusCode int, key string, args ...a
 
 	ctx.JSON(statusCode, Response{
 		Status:  statusText(statusCode),
+		Code:    httpStatusToErrorCode(statusCode),
 		Message: message,
 		APIInfo: getAPIInfo(ctx),
 	})
@@ -72,6 +73,7 @@ func (r *responder) SendWithData(ctx *gin.Context, statusCode int, key string, d
 
 	res := Response{
 		Status:  statusText(statusCode),
+		Code:    httpStatusToErrorCode(statusCode),
 		Message: message,
 		APIInfo: getAPIInfo(ctx),
 	}
@@ -124,7 +126,11 @@ func (r *responder) Error(ctx *gin.Context, err error) {
 		return
 	}
 
-	_ = ctx.Error(err)
+	// gin's ctx.Error panics on nil; a nil err still gets the generic 500.
+	if err != nil {
+		_ = ctx.Error(err)
+	}
+
 	r.Send(ctx, http.StatusInternalServerError, "internal_server_error")
 }
 
@@ -157,10 +163,14 @@ func errorCodeToHTTPStatus(code ErrorCode) int {
 		return http.StatusNotFound
 	case Forbidden:
 		return http.StatusForbidden
+	case MethodNotAllowed:
+		return http.StatusMethodNotAllowed
 	case Conflict:
 		return http.StatusConflict
 	case UnsupportedMediaType:
 		return http.StatusUnsupportedMediaType
+	case PayloadTooLarge:
+		return http.StatusRequestEntityTooLarge
 	case TooManyRequests:
 		return http.StatusTooManyRequests
 	case UnprocessableEntity:
@@ -169,6 +179,39 @@ func errorCodeToHTTPStatus(code ErrorCode) int {
 		return http.StatusInternalServerError
 	default:
 		return http.StatusInternalServerError
+	}
+}
+
+// httpStatusToErrorCode gives every error status (>= 400) a code so error bodies always carry one;
+// unmapped statuses fall back to BAD_REQUEST (4xx) or INTERNAL_SERVER_ERROR (5xx).
+func httpStatusToErrorCode(status int) ErrorCode {
+	switch {
+	case status < http.StatusBadRequest:
+		return ""
+	case status == http.StatusBadRequest:
+		return BadRequest
+	case status == http.StatusUnauthorized:
+		return Unauthorized
+	case status == http.StatusForbidden:
+		return Forbidden
+	case status == http.StatusNotFound:
+		return NotFound
+	case status == http.StatusMethodNotAllowed:
+		return MethodNotAllowed
+	case status == http.StatusConflict:
+		return Conflict
+	case status == http.StatusRequestEntityTooLarge:
+		return PayloadTooLarge
+	case status == http.StatusUnsupportedMediaType:
+		return UnsupportedMediaType
+	case status == http.StatusUnprocessableEntity:
+		return UnprocessableEntity
+	case status == http.StatusTooManyRequests:
+		return TooManyRequests
+	case status < http.StatusInternalServerError:
+		return BadRequest
+	default:
+		return Internal
 	}
 }
 

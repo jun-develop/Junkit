@@ -22,6 +22,13 @@ func (w *bodyWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// WriteHeader discards the status so the dashboard is still sent with 200 (e.g. after CORS aborts
+// an OPTIONS request with 204).
+func (w *bodyWriter) WriteHeader(int) {}
+
+// WriteHeaderNow discards the commit for the same reason as WriteHeader.
+func (w *bodyWriter) WriteHeaderNow() {}
+
 // TracerDebugOptions selects debug requests: ?QueryKey=QueryValue plus the SecretHeader carrying
 // Secret. Any empty field disables debug mode.
 type TracerDebugOptions struct {
@@ -74,7 +81,7 @@ func renderTracerDashboard(c *gin.Context, bw *bodyWriter, start time.Time) {
 		tracer.C(c.Request.Context(), fmt.Sprintf("⏸ Stopped by tracer.Stop() after %v", time.Since(start)))
 	} else {
 		tracer.C(c.Request.Context(), fmt.Sprintf("Request processed in %v", time.Since(start)))
-		tracer.HTTPInfo(c.Request.Context(), c.Request)
+		tracer.HTTPInfo(c, c.Request)
 	}
 
 	c.Writer = bw.ResponseWriter

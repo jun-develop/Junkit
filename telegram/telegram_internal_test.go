@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
@@ -141,5 +143,23 @@ func TestNewClient_NilHTTPClientDefaults(t *testing.T) {
 
 	if impl.botPrefix != "https://api.telegram.org/botabc" {
 		t.Fatalf("botPrefix = %q, want the real Telegram API host", impl.botPrefix)
+	}
+}
+
+func TestClient_SendDocument_BuildRequestErrorReleasesWriter(t *testing.T) {
+	c, _ := newTestClient(t, nil)
+	c.botPrefix = "://bad-url"
+	before := runtime.NumGoroutine()
+
+	if err := c.SendDocument(context.Background(), "123", strings.NewReader("doc"), "a.txt", ""); err == nil {
+		t.Fatal("SendDocument() error = nil, want the request build error")
+	}
+
+	for deadline := time.Now().Add(time.Second); runtime.NumGoroutine() > before; {
+		if time.Now().After(deadline) {
+			t.Fatal("the multipart writer goroutine is still blocked after SendDocument returned")
+		}
+
+		time.Sleep(10 * time.Millisecond)
 	}
 }

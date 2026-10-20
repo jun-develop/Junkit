@@ -133,6 +133,27 @@ func TestMinIntMaxIntTags(t *testing.T) {
 	}
 }
 
+func TestMinIntMaxIntTags_NonIntFields(t *testing.T) {
+	v := newTestValidator(t)
+
+	type form struct {
+		Count uint8  `validate:"min_int=1,max_int=10"`
+		Name  string `validate:"omitempty,min_int=1"`
+	}
+
+	if err := v.Struct(form{Count: 5}); err != nil {
+		t.Fatalf("uint within range: validate error = %v, want nil", err)
+	}
+
+	if err := v.Struct(form{Count: 11}); err == nil {
+		t.Fatal("uint above the maximum: validate error = nil, want an error")
+	}
+
+	if err := v.Struct(form{Count: 5, Name: "x"}); err == nil {
+		t.Fatal("string field: validate error = nil, want an error instead of a panic")
+	}
+}
+
 func TestFileExtTag(t *testing.T) {
 	v := newTestValidator(t)
 

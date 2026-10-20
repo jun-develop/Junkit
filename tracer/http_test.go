@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/jun-develop/junkit/tracer"
 )
 
@@ -34,8 +36,8 @@ func TestServerInfo_MasksSecretsAndReportsRequestDetails(t *testing.T) {
 		t.Errorf(`info["host"], info["host_port"] = %v, %v, want "api.example.com", "8080"`, info["host"], info["host_port"])
 	}
 
-	if info["client_ip"] != "203.0.113.5" {
-		t.Errorf(`info["client_ip"] = %v, want %q (first entry of X-Forwarded-For)`, info["client_ip"], "203.0.113.5")
+	if info["client_ip"] != "192.0.2.1" {
+		t.Errorf(`info["client_ip"] = %v, want %q (RemoteAddr; X-Forwarded-For is client-controlled)`, info["client_ip"], "192.0.2.1")
 	}
 
 	if info["user_agent"] != "test-agent" {
@@ -93,5 +95,23 @@ func TestHTTPInfo(t *testing.T) {
 	logs := d.Logs()
 	if len(logs) != 1 || logs[0].Type != tracer.TypeVariable || logs[0].Label != "REQUEST & SERVER INFO" {
 		t.Fatalf("Logs() = %+v, want one REQUEST & SERVER INFO variable entry", logs)
+	}
+}
+
+func TestHTTPInfo_GinContextUsesClientIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, engine := gin.CreateTestContext(httptest.NewRecorder())
+	_ = engine.SetTrustedProxies(nil) // no trusted proxy: the spoofed headers must be ignored
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request.Header.Set("X-Real-IP", "6.6.6.6")
+	c.Request.Header.Set("X-Forwarded-For", "6.6.6.6")
+
+	d := tracer.New()
+	c.Request = c.Request.WithContext(tracer.WithContext(c.Request.Context(), d))
+	tracer.HTTPInfo(c, c.Request)
+
+	info := d.Logs()[0].Data.(map[string]any)
+	if info["client_ip"] != c.ClientIP() || info["client_ip"] != "192.0.2.1" {
+		t.Fatalf(`client_ip = %v, want gin's ClientIP %q`, info["client_ip"], c.ClientIP())
 	}
 }

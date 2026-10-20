@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,10 +42,16 @@ func (s *LocalService) UploadFile(_ context.Context, file io.Reader, originalFil
 		return "", fmt.Errorf("create destination file: %w", err)
 	}
 
-	defer out.Close()
-
+	// Close is checked: a failed final flush means the stored file is incomplete.
 	if _, err := io.Copy(out, file); err != nil {
+		_ = out.Close()
+		_ = os.Remove(dst)
 		return "", fmt.Errorf("copy file contents: %w", err)
+	}
+
+	if err := out.Close(); err != nil {
+		_ = os.Remove(dst)
+		return "", fmt.Errorf("close destination file: %w", err)
 	}
 
 	return fmt.Sprintf("%s/%s", s.baseURL, uniqueFilename), nil
@@ -52,8 +59,8 @@ func (s *LocalService) UploadFile(_ context.Context, file io.Reader, originalFil
 
 // DeleteFile implements Service; deleting a file that does not exist is not an error.
 func (s *LocalService) DeleteFile(_ context.Context, fileURL string) error {
-	filename := filepath.Base(fileURL)
-	if filename == "" || filename == "." || filename == "/" {
+	filename := fileURL[strings.LastIndex(fileURL, "/")+1:]
+	if filename == "" || filename == "." || filename == ".." || strings.ContainsRune(filename, filepath.Separator) {
 		return fmt.Errorf("invalid file URL: %s", fileURL)
 	}
 

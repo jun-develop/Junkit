@@ -138,6 +138,7 @@ func (c *client) SendDocument(ctx context.Context, chatID string, content io.Rea
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.botPrefix+"/sendDocument", pr)
 	if err != nil {
 		c.logger.Error("telegram: build request failed", zap.Error(err))
+		_ = pr.CloseWithError(err)
 		return err
 	}
 
@@ -146,6 +147,7 @@ func (c *client) SendDocument(ctx context.Context, chatID string, content io.Rea
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.logger.Error("telegram: upload document failed", zap.Error(err))
+		_ = pr.CloseWithError(err)
 		return err
 	}
 

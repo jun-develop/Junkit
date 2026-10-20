@@ -192,3 +192,20 @@ func TestTracerDebug_DropsInnerGzipEncoding(t *testing.T) {
 		t.Fatalf("body = %.40q, want the plain HTML dashboard", w.Body.String())
 	}
 }
+
+func TestTracerDebug_StaysOKWhenInnerMiddlewareAborts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(middleware.TracerDebug(debugOpts), middleware.CORS(middleware.CORSOptions{}))
+	router.OPTIONS("/", func(c *gin.Context) {})
+
+	req := newDebugRequest("/?t_debug=1234")
+	req.Method = http.MethodOptions
+	req.Header.Set("User-Agent", "curl/8")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK || !json.Valid(w.Body.Bytes()) {
+		t.Fatalf("status = %d body = %q, want 200 with the JSON dashboard (CORS's 204 discarded)", w.Code, w.Body)
+	}
+}

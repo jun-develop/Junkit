@@ -1,10 +1,13 @@
 package validation_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -117,6 +120,31 @@ func TestGetValidationErrors(t *testing.T) {
 
 		got := v.GetValidationErrors(ctx, bindErr)
 		want := map[string]string{"page": "page must be integer"}
+		assertMapEqual(t, got, want)
+	})
+
+	t.Run("an unparsable unsigned query value reports a positive integer", func(t *testing.T) {
+		type req struct {
+			Limit uint `form:"limit"`
+		}
+
+		ctx := newTestContext(t, http.MethodGet, "/?limit=-1", "")
+		var body req
+		bindErr := ctx.ShouldBindQuery(&body)
+		if bindErr == nil {
+			t.Fatal("expected a binding error for a negative unsigned value")
+		}
+
+		got := v.GetValidationErrors(ctx, bindErr)
+		want := map[string]string{"limit": "limit must be positive integer"}
+		assertMapEqual(t, got, want)
+	})
+
+	t.Run("a JSON type error on a *time.Time field uses the datetime name", func(t *testing.T) {
+		typeErr := &json.UnmarshalTypeError{Field: "StartAt", Type: reflect.TypeFor[*time.Time]()}
+
+		got := v.GetValidationErrors(nil, typeErr)
+		want := map[string]string{"start_at": "start_at must be datetime"}
 		assertMapEqual(t, got, want)
 	})
 

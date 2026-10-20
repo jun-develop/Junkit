@@ -135,3 +135,19 @@ func TestLocalService_DeleteFile_InvalidURL(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalService_DeleteFile_RejectsPathsOutsideBaseDir(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "uploads")
+	svc, _ := storage.NewLocalService(dir, "http://localhost/uploads")
+
+	for _, url := range []string{"x/..", "..", "http://localhost/uploads/"} {
+		if err := svc.DeleteFile(context.Background(), url); err == nil {
+			t.Errorf("DeleteFile(%q) error = nil, want an error", url)
+		}
+	}
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("base dir was removed: %v", err)
+	}
+}

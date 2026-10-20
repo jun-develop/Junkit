@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -195,5 +196,36 @@ func TestAccessLog_CustomExcludedPathsOverrideDefaults(t *testing.T) {
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/ping", nil))
 	if len(logs.All()) != 1 {
 		t.Fatalf("got %d log entries total, want still 1 — /ping is excluded by the custom list", len(logs.All()))
+	}
+}
+
+func TestAccessLog_MasksNestedFieldsInTopLevelArray(t *testing.T) {
+	router, logs := newAccessLogRouter(middleware.AccessLogOptions{}, func(c *gin.Context) {
+		c.JSON(http.StatusOK, []any{gin.H{"items": []any{[]any{gin.H{"accessToken": "t1", "API-Key": "k1", "name": "ok"}}}}})
+	})
+
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/ping", nil))
+
+	got := fmt.Sprint(logs.All()[0].ContextMap()["response_payload"])
+	if strings.Contains(got, "t1") || strings.Contains(got, "k1") || !strings.Contains(got, "name:ok") {
+		t.Fatalf("response_payload = %s, want accessToken and API-Key masked, name kept", got)
+	}
+}
+
+func TestAccessLog_RespSizeIsUncompressedInsideGzip(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	core, logs := observer.New(zapcore.InfoLevel)
+	body := strings.Repeat("a", 1000)
+
+	router := gin.New()
+	router.Use(middleware.Gzip(middleware.GzipOptions{}), middleware.AccessLog(zap.New(core), middleware.AccessLogOptions{}))
+	router.GET("/ping", func(c *gin.Context) { c.String(http.StatusOK, body) })
+
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	router.ServeHTTP(httptest.NewRecorder(), req)
+
+	if got := logs.All()[0].ContextMap()["resp_size"]; got != int64(len(body)) {
+		t.Fatalf("resp_size = %v, want %d (uncompressed)", got, len(body))
 	}
 }

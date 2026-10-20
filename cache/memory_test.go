@@ -152,3 +152,25 @@ func TestMemoryCache_Close(t *testing.T) {
 		t.Fatalf("Close() error = %v, want nil", err)
 	}
 }
+
+func TestMemoryCache_GetOfExpiredEntryKeepsConcurrentSet(t *testing.T) {
+	ctx := context.Background()
+	c := cache.NewMemoryCache[string]()
+
+	for i := 0; i < 2000; i++ {
+		_ = c.Set(ctx, "key", "stale", time.Nanosecond)
+		time.Sleep(time.Microsecond)
+
+		done := make(chan struct{})
+		go func() {
+			c.Get(ctx, "key")
+			close(done)
+		}()
+		_ = c.Set(ctx, "key", "fresh", 0)
+		<-done
+
+		if got, ok := c.Get(ctx, "key"); !ok || got != "fresh" {
+			t.Fatalf("iteration %d: Get() = %q, %v; a concurrent Set was lost", i, got, ok)
+		}
+	}
+}

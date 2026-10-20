@@ -81,6 +81,7 @@ type gzipWriter struct {
 	pool    *sync.Pool
 	gz      *gzip.Writer
 	decided bool
+	size    int
 }
 
 func (w *gzipWriter) Write(data []byte) (int, error) {
@@ -92,7 +93,18 @@ func (w *gzipWriter) Write(data []byte) (int, error) {
 		return w.ResponseWriter.Write(data)
 	}
 
-	return w.gz.Write(data)
+	n, err := w.gz.Write(data)
+	w.size += n
+
+	return n, err
+}
+
+func (w *gzipWriter) Size() int {
+	if w.gz == nil {
+		return w.ResponseWriter.Size()
+	}
+
+	return w.size
 }
 
 func (w *gzipWriter) WriteString(s string) (int, error) {

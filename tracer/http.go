@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // getHostname returns the current machine's hostname, or "unknown" if it can't be determined.
@@ -66,7 +68,7 @@ func ServerInfo(r *http.Request) map[string]any {
 		"host_port":       port,
 		"server_name":     getHostname(),
 		"server_ip":       getServerIP(),
-		"client_ip":       getRealClientIP(r),
+		"client_ip":       clientHost(r),
 		"client_port":     clientPort,
 		"x_forwarded_for": r.Header.Get("X-Forwarded-For"),
 		"x_real_ip":       r.Header.Get("X-Real-IP"),
@@ -82,29 +84,23 @@ func ServerInfo(r *http.Request) map[string]any {
 	}
 }
 
-// HTTPInfo records HTTP request and server info on the ctx Debugger.
+// HTTPInfo records HTTP request and server info on the ctx Debugger. When ctx is a *gin.Context,
+// client_ip is its ClientIP, which honours the engine's trusted-proxy settings.
 func HTTPInfo(ctx context.Context, r *http.Request) {
 	if d := FromContext(ctx); d != nil {
-		d.record(TypeVariable, "REQUEST & SERVER INFO", ServerInfo(r))
+		info := ServerInfo(r)
+		if gc, ok := ctx.(*gin.Context); ok {
+			info["client_ip"] = gc.ClientIP()
+		}
+
+		d.record(TypeVariable, "REQUEST & SERVER INFO", info)
 	}
 }
 
-// getRealClientIP resolves originating client IP from X-Real-IP, X-Forwarded-For, or RemoteAddr.
-func getRealClientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		if idx := strings.IndexByte(ip, ','); idx != -1 {
-			return strings.TrimSpace(ip[:idx])
-		}
-
-		return ip
-	}
-
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		parts := strings.Split(fwd, ",")
-		return strings.TrimSpace(parts[0])
-	}
-
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+// clientHost returns the host of r.RemoteAddr; proxy headers are client-controlled, so they are
+// only shown raw (x_forwarded_for, x_real_ip), never trusted here.
+func clientHost(r *http.Request) string {
+	host, _ := splitHostPort(r.RemoteAddr)
 
 	return host
 }

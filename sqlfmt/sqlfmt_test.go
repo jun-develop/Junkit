@@ -79,9 +79,29 @@ func TestFormatValue(t *testing.T) {
 			want: "3.5",
 		},
 		{
-			name: "empty int slice becomes NULL",
-			v:    []int{},
+			name: "nil slice becomes NULL",
+			v:    []int(nil),
 			want: "NULL",
+		},
+		{
+			name: "empty non-nil slice becomes an empty array",
+			v:    []int{},
+			want: "'{}'",
+		},
+		{
+			name: "string slice elements are double-quoted and escaped",
+			v:    []string{"a", `say "hi"`, `back\slash`, "it's"},
+			want: `'{"a","say \"hi\"","back\\slash","it''s"}'`,
+		},
+		{
+			name: "nil element pointer becomes a bare NULL",
+			v:    []*string{nil},
+			want: "'{NULL}'",
+		},
+		{
+			name: "nested slices become a multidimensional array",
+			v:    [][]int{{1, 2}, {3, 4}},
+			want: "'{{1,2},{3,4}}'",
 		},
 		{
 			name: "int slice becomes a Postgres array literal",

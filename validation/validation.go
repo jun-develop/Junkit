@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -88,7 +89,16 @@ func (v *Validator) jsonTypeError(err error) (map[string]string, bool) {
 	}
 
 	field := camelToSnake(typeErr.Field)
-	typeName := typeErr.Type.String()
+	t := typeErr.Type
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	typeName := t.String()
+	if t == reflect.TypeFor[time.Time]() {
+		typeName = "time"
+	}
+
 	friendlyType := v.translate("type_"+typeName, typeName)
 
 	return map[string]string{
@@ -111,6 +121,8 @@ func (v *Validator) numError(ctx *gin.Context, err error) (any, bool) {
 		typeName = "bool"
 	case strings.Contains(numErr.Func, "Float"):
 		typeName = "float64"
+	case strings.Contains(numErr.Func, "Uint"):
+		typeName = "uint"
 	}
 
 	friendlyType := v.translate("type_"+typeName, typeName)

@@ -1,8 +1,13 @@
 package middleware
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestClientStore_GetLimiterIsStablePerIP(t *testing.T) {
@@ -65,5 +70,15 @@ func TestClientStore_CleanupEvictsIdleEntries(t *testing.T) {
 	sh.mu.RUnlock()
 	if stillExists {
 		t.Fatal("cleanupShard did not evict an entry idle past ClientTTL")
+	}
+}
+
+func TestRateLimitAlertMessage_EscapesRequestValues(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/%3Cb%3Ex&y", nil)
+
+	msg := rateLimitAlertMessage(c, "1.2.3.4")
+	if strings.Contains(msg, "<b>x") || !strings.Contains(msg, "/&lt;b&gt;x&amp;y") {
+		t.Fatalf("path not HTML-escaped in alert:\n%s", msg)
 	}
 }

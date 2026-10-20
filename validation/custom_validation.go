@@ -102,7 +102,7 @@ func CheckMXRecord(domain string) bool {
 // records. The MX check does a DNS lookup.
 func ValidateEmail(email string) bool {
 	if !emailRegex.MatchString(email) {
-		console.Warnf("validation: invalid email format: %s", email)
+		console.Warnf("validation: invalid email format")
 		return false
 	}
 
@@ -243,7 +243,14 @@ func validateMinInt(fl validator.FieldLevel) bool {
 		return false
 	}
 
-	return fl.Field().Int() >= minVal
+	switch f := fl.Field(); {
+	case f.CanInt():
+		return f.Int() >= minVal
+	case f.CanUint():
+		return minVal <= 0 || f.Uint() >= uint64(minVal)
+	}
+
+	return false
 }
 
 // validateMaxInt reports whether the integer field is <= the rule parameter.
@@ -253,7 +260,14 @@ func validateMaxInt(fl validator.FieldLevel) bool {
 		return false
 	}
 
-	return fl.Field().Int() <= maxVal
+	switch f := fl.Field(); {
+	case f.CanInt():
+		return f.Int() <= maxVal
+	case f.CanUint():
+		return maxVal >= 0 && f.Uint() <= uint64(maxVal)
+	}
+
+	return false
 }
 
 // validateFileExt reports whether the file extension is in the space-separated rule parameter

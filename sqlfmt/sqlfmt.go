@@ -206,19 +206,45 @@ func quote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// formatSlice renders a Go slice/array as a Postgres array literal.
-// An empty slice becomes NULL, matching how pgx encodes it over the wire.
+// formatSlice renders a Go slice/array as a Postgres array literal, e.g. '{1,2}' or '{"a","b"}'.
+// A nil slice becomes NULL and an empty one '{}', matching how pgx encodes them over the wire.
 func formatSlice(rv reflect.Value) string {
-	if rv.Len() == 0 {
+	if rv.Kind() == reflect.Slice && rv.IsNil() {
 		return "NULL"
 	}
 
+	return quote(arrayLiteral(rv))
+}
+
+// arrayEscaper escapes an element for a double-quoted Postgres array element.
+var arrayEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+
+// arrayLiteral renders rv as the unquoted body of a Postgres array literal.
+func arrayLiteral(rv reflect.Value) string {
 	parts := make([]string, rv.Len())
 	for i := range parts {
-		parts[i] = FormatValue(rv.Index(i).Interface())
+		lit := FormatValue(rv.Index(i).Interface())
+		body, quoted := strings.CutPrefix(lit, "'")
+		if !quoted {
+			parts[i] = lit // NULL, numbers and booleans are written bare
+			continue
+		}
+
+		body = strings.ReplaceAll(strings.TrimSuffix(body, "'"), "''", "'")
+
+		elem := rv.Index(i)
+		for (elem.Kind() == reflect.Pointer || elem.Kind() == reflect.Interface) && !elem.IsNil() {
+			elem = elem.Elem()
+		}
+
+		if elem.Kind() == reflect.Slice || elem.Kind() == reflect.Array {
+			parts[i] = body
+		} else {
+			parts[i] = `"` + arrayEscaper.Replace(body) + `"`
+		}
 	}
 
-	return fmt.Sprintf("'{%s}'", strings.Join(parts, ","))
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 // formatPgtype renders a pgtype value as a SQL literal; ok is false for other types.

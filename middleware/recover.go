@@ -76,6 +76,6 @@ func handlePanic(c *gin.Context, logger *zap.Logger, notifier notification.Notif
 		notifier.SendErrorNotification(c, errorData, http.StatusInternalServerError)
 	}
 
-	responder.Send(c, http.StatusInternalServerError, "internal_server_error")
+	responder.Error(c, response.ErrInternalServer)
 	c.Abort()
 }

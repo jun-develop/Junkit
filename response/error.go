@@ -11,9 +11,11 @@ const (
 	Unauthorized         ErrorCode = "UNAUTHORIZED"
 	NotFound             ErrorCode = "NOT_FOUND"
 	Forbidden            ErrorCode = "FORBIDDEN"
+	MethodNotAllowed     ErrorCode = "METHOD_NOT_ALLOWED"
 	Conflict             ErrorCode = "CONFLICT"
 	UnprocessableEntity  ErrorCode = "UNPROCESSABLE_ENTITY"
 	UnsupportedMediaType ErrorCode = "UNSUPPORTED_MEDIA_TYPE"
+	PayloadTooLarge      ErrorCode = "PAYLOAD_TOO_LARGE"
 	TooManyRequests      ErrorCode = "TOO_MANY_REQUESTS"
 	Internal             ErrorCode = "INTERNAL_SERVER_ERROR"
 )

@@ -91,6 +91,10 @@ func TestPayload_OversizedBodyIsRejected(t *testing.T) {
 	if !c.IsAborted() {
 		t.Error("an oversized body should abort the chain")
 	}
+
+	if !strings.Contains(w.Body.String(), `"code":"PAYLOAD_TOO_LARGE"`) {
+		t.Errorf("body = %s, want code PAYLOAD_TOO_LARGE", w.Body.String())
+	}
 }
 
 func TestPayload_EmptyBodyPassesThrough(t *testing.T) {

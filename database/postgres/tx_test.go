@@ -167,6 +167,35 @@ func TestDB_WithTransaction(t *testing.T) {
 		}
 	})
 
+	t.Run("a nested call joins the outer transaction", func(t *testing.T) {
+		tx := &fakeTx{}
+		pool := &fakePool{tx: tx}
+		db := postgres.NewDB(pool)
+
+		err := db.WithTransaction(context.Background(), func(outerCtx context.Context) error {
+			pool.beginErr = errors.New("nested Begin must not be called")
+
+			return db.WithTransaction(outerCtx, func(innerCtx context.Context) error {
+				if got := db.Executor(innerCtx); got != tx {
+					t.Fatal("nested fn does not run in the outer transaction")
+				}
+
+				if tx.committed {
+					t.Fatal("the nested call committed the outer transaction")
+				}
+
+				return nil
+			})
+		})
+		if err != nil {
+			t.Fatalf("WithTransaction() error = %v, want nil", err)
+		}
+
+		if !tx.committed {
+			t.Fatal("expected the outer transaction to be committed")
+		}
+	})
+
 	t.Run("fn's context carries the active transaction", func(t *testing.T) {
 		tx := &fakeTx{}
 		db := postgres.NewDB(&fakePool{tx: tx})

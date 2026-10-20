@@ -47,6 +47,7 @@ func CORS(opts CORSOptions) gin.HandlerFunc {
 
 	return func(ctx *gin.Context) {
 		origin := ctx.GetHeader("Origin")
+		ctx.Writer.Header().Add("Vary", "Origin")
 
 		if origin != "" {
 			isAllowed := allowAll || slices.Contains(opts.AllowOrigins, origin)
@@ -55,7 +56,6 @@ func CORS(opts CORSOptions) gin.HandlerFunc {
 					ctx.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 				} else {
 					ctx.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-					ctx.Writer.Header().Set("Vary", "Origin")
 				}
 
 				if opts.AllowCredentials {

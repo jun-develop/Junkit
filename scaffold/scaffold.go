@@ -2,6 +2,7 @@
 package scaffold
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,8 +23,14 @@ type FeatureData struct {
 	// Camel is Name converted to camelCase (e.g. "product").
 	Camel string
 
+	// Plural is Name pluralized (e.g. "categories"); it is the feature's URL path segment.
+	Plural string
+
 	// Table is the database table name the feature's migration and queries target.
 	Table string
+
+	// Model is the struct sqlc generates for Table: singularized, PascalCase (e.g. "items" -> "Item").
+	Model string
 
 	// Module is the target project's Go module path.
 	Module string
@@ -34,18 +41,57 @@ type FeatureData struct {
 // Usage:
 //
 //	data := scaffold.NewFeatureData("product", "jungo", "")
-//	// data.Pascal == "Product", data.Camel == "product", data.Table == "products"
+//	// data.Pascal == "Product", data.Camel == "product", data.Table == "products", data.Model == "Product"
 func NewFeatureData(name, module, table string) FeatureData {
+	plural := pluralize(name)
 	if table == "" {
-		table = name + "s"
+		table = plural
 	}
 
 	return FeatureData{
 		Name:   name,
 		Pascal: toPascalCase(name),
 		Camel:  toCamelCase(name),
+		Plural: plural,
 		Table:  table,
+		Model:  toPascalCase(singularize(table)),
 		Module: module,
+	}
+}
+
+// pluralize applies the regular English plural rules (e.g. "category" -> "categories", "box" -> "boxes").
+func pluralize(s string) string {
+	switch {
+	case len(s) > 1 && strings.HasSuffix(s, "y") && !strings.ContainsAny(s[len(s)-2:len(s)-1], "aeiou"):
+		return s[:len(s)-1] + "ies"
+	case strings.HasSuffix(s, "s"), strings.HasSuffix(s, "x"), strings.HasSuffix(s, "z"),
+		strings.HasSuffix(s, "ch"), strings.HasSuffix(s, "sh"):
+		return s + "es"
+	default:
+		return s + "s"
+	}
+}
+
+// singularize mirrors the singular rules sqlc (github.com/jinzhu/inflection) applies to table names
+// when naming model structs.
+// shortcut: covers regular plurals plus inflection's bus/alias/status cases, not its irregulars
+// (people, children, ...); pass the struct name explicitly if a table ever needs one.
+func singularize(s string) string {
+	for _, suffix := range []string{"buses", "aliases", "statuses", "xes", "ches", "sses", "shes"} {
+		if strings.HasSuffix(s, suffix) {
+			return s[:len(s)-2]
+		}
+	}
+
+	switch {
+	case len(s) > 3 && strings.HasSuffix(s, "ies") && !strings.ContainsAny(s[len(s)-4:len(s)-3], "aeiouy"):
+		return s[:len(s)-3] + "y"
+	case strings.HasSuffix(s, "ss"):
+		return s
+	case strings.HasSuffix(s, "s"):
+		return s[:len(s)-1]
+	default:
+		return s
 	}
 }
 
@@ -110,8 +156,23 @@ func Generate(cfg GenerateConfig) error {
 		}
 	}
 
-	for _, f := range cfg.Files {
-		if err := writeTemplate(f, cfg.Data); err != nil {
+	// Render everything before writing anything, so a bad template leaves no partial feature behind.
+	rendered := make([][]byte, len(cfg.Files))
+	for i, f := range cfg.Files {
+		out, err := renderTemplate(f, cfg.Data)
+		if err != nil {
+			return err
+		}
+
+		rendered[i] = out
+	}
+
+	for i, f := range cfg.Files {
+		if err := writeFile(f.Path, rendered[i]); err != nil {
+			for _, written := range cfg.Files[:i] {
+				_ = os.Remove(written.Path)
+			}
+
 			return err
 		}
 
@@ -140,26 +201,29 @@ func Generate(cfg GenerateConfig) error {
 	return nil
 }
 
-// writeTemplate renders f's template with data into f.Path, creating parent directories.
-func writeTemplate(f File, data FeatureData) error {
+// renderTemplate renders f's template with data.
+func renderTemplate(f File, data FeatureData) ([]byte, error) {
 	tmpl, err := template.New(f.Path).Parse(f.Template)
 	if err != nil {
-		return console.NewError("parse template for %s: %w", f.Path, err)
+		return nil, console.NewError("parse template for %s: %w", f.Path, err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(f.Path), 0o755); err != nil {
-		return console.NewError("create directory for %s: %w", f.Path, err)
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return nil, console.NewError("render %s: %w", f.Path, err)
 	}
 
-	file, err := os.Create(f.Path)
-	if err != nil {
-		return console.NewError("create %s: %w", f.Path, err)
+	return buf.Bytes(), nil
+}
+
+// writeFile writes content to path, creating parent directories.
+func writeFile(path string, content []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return console.NewError("create directory for %s: %w", path, err)
 	}
 
-	defer file.Close()
-
-	if err := tmpl.Execute(file, data); err != nil {
-		return console.NewError("render %s: %w", f.Path, err)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return console.NewError("create %s: %w", path, err)
 	}
 
 	return nil
