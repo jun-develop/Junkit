@@ -97,6 +97,37 @@ func TestPayload_OversizedBodyIsRejected(t *testing.T) {
 	}
 }
 
+func TestPayload_RouteLimitsOverrideMaxBodySize(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	responder := response.NewResponder(response.Options{Language: "en"}, i18n.NewTranslator())
+	router := gin.New()
+	router.Use(middleware.Payload(middleware.PayloadOptions{
+		MaxBodySize: 10,
+		RouteLimits: map[string]int64{middleware.RouteKey(http.MethodPost, "/upload/:id"): 100},
+	}, responder))
+
+	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
+	router.POST("/upload/:id", ok)
+	router.PUT("/upload/:id", ok)
+	router.POST("/other", ok)
+
+	body := strings.Repeat("x", 50) // over MaxBodySize, under the route limit
+	for _, tc := range []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodPost, "/upload/42", http.StatusOK},                   // matched by pattern, not raw path
+		{http.MethodPut, "/upload/42", http.StatusRequestEntityTooLarge}, // the limit is per method
+		{http.MethodPost, "/other", http.StatusRequestEntityTooLarge},
+	} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, strings.NewReader(body)))
+		if w.Code != tc.want {
+			t.Errorf("%s %s: status = %d, want %d", tc.method, tc.path, w.Code, tc.want)
+		}
+	}
+}
+
 func TestPayload_EmptyBodyPassesThrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

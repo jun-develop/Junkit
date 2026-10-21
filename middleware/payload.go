@@ -25,6 +25,21 @@ const (
 type PayloadOptions struct {
 	// MaxBodySize is the maximum allowed request body size in bytes.
 	MaxBodySize int64
+
+	// RouteLimits overrides MaxBodySize for single routes (e.g. uploads), keyed by RouteKey. A
+	// global Payload runs before any route middleware, so this is how a route gets a larger limit.
+	// It is read per request: it may be filled after Payload is created, but not once the server
+	// is serving.
+	RouteLimits map[string]int64
+}
+
+// RouteKey returns the RouteLimits key for a route: its method and its Gin route pattern.
+//
+// Usage:
+//
+//	limits[middleware.RouteKey(http.MethodPost, "/api/v1/users/:uuid/avatar")] = 5 << 20
+func RouteKey(method, pattern string) string {
+	return method + " " + pattern
 }
 
 // Payload reads, limits, and caches the request body in Gin context for downstream handlers.
@@ -39,7 +54,12 @@ func Payload(opts PayloadOptions, responder response.Responder) gin.HandlerFunc 
 			return
 		}
 
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, opts.MaxBodySize)
+		limit := opts.MaxBodySize
+		if n, ok := opts.RouteLimits[RouteKey(c.Request.Method, c.FullPath())]; ok {
+			limit = n
+		}
+
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 
 		bodyBytes, err := io.ReadAll(c.Request.Body)
 		if err != nil {

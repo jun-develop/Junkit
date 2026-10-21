@@ -975,7 +975,7 @@ can have its own configuration.
 | `Security()` | Sets HSTS, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Permissions-Policy` |
 | `Trace(TraceOptions)` | Reuses the incoming `X-Trace-Id` or generates a UUID; puts it in the request context (`logger.GetTraceID`) and the response header; stores start time, version, env for `response.APIInfo` |
 | `CORS(CORSOptions)` | Validates origins, answers preflights. With `AllowCredentials` and `"*"`, echoes the request origin (browsers reject `*` with credentials) |
-| `Payload(PayloadOptions, responder)` | Reads and caches the request body (JSON or form) once, enforcing `MaxBodySize` (→ 413). Read it with `GetPayload(c)`; raw bytes under `PayloadRawKey` |
+| `Payload(PayloadOptions, responder)` | Reads and caches the request body (JSON or form) once, enforcing `MaxBodySize` (→ 413), or a larger per-route limit from `RouteLimits` (keyed by `RouteKey(method, pattern)`). Read it with `GetPayload(c)`; raw bytes under `PayloadRawKey` |
 | `Limiter(LimiterOptions, log, responder, notifier)` | Per-IP token-bucket rate limiting (→ 429), sharded maps, idle-client eviction, IP whitelist, throttled logging/alerts |
 | `Recover(log, notifier, responder, RecoverOptions)` | Catches panics → logs stack, alerts via `notifier`, responds 500. Lets `tracer.Stop` breakpoints through |
 | `AccessLog(httpLogger, AccessLogOptions)` | Structured request/response log with sensitive-field masking |
@@ -1017,7 +1017,11 @@ middleware.AccessLogOptions{
 
 middleware.TracerDebugOptions{QueryKey: "t_debug", QueryValue: "0604", SecretHeader: "X-Internal-Secret", Secret: secret}
 middleware.RecoverOptions{Debug: debugOpts} // same TracerDebugOptions as TracerDebug
-middleware.PayloadOptions{MaxBodySize: 2 << 20} // 2 MB
+middleware.PayloadOptions{
+	MaxBodySize: 2 << 20, // 2 MB for every route...
+	// ...except these: a global Payload runs before route middleware, so a route's larger limit lives here.
+	RouteLimits: map[string]int64{middleware.RouteKey(http.MethodPost, "/api/v1/users/:uuid/avatar"): 6 << 20},
+}
 middleware.TraceOptions{Version: "v1.2.0", Commit: "abc123", Environment: "production"}
 middleware.BearerAuthOptions{MessageKey: "unauthorized_token"} // i18n key for a missing token
 ```
