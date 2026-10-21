@@ -26,10 +26,7 @@ type PayloadOptions struct {
 	// MaxBodySize is the maximum allowed request body size in bytes.
 	MaxBodySize int64
 
-	// RouteLimits overrides MaxBodySize for single routes (e.g. uploads), keyed by RouteKey. A
-	// global Payload runs before any route middleware, so this is how a route gets a larger limit.
-	// It is read per request: it may be filled after Payload is created, but not once the server
-	// is serving.
+	// RouteLimits overrides MaxBodySize per RouteKey (e.g. uploads); fill it before the server starts.
 	RouteLimits map[string]int64
 }
 
